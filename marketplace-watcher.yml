@@ -1,0 +1,60 @@
+name: Marketplace Watcher
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_notify:
+        description: "Send test notification only"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run watcher
+        env:
+          FACEBOOK_SEARCH_URL: ${{ secrets.FACEBOOK_SEARCH_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER_URL: ${{ secrets.NTFY_SERVER_URL }}
+          MAX_PRICE: ${{ secrets.MAX_PRICE }}
+          REQUIRED_KEYWORDS: ${{ secrets.REQUIRED_KEYWORDS }}
+          EXCLUDED_KEYWORDS: ${{ secrets.EXCLUDED_KEYWORDS }}
+        run: |
+          if [ "${{ github.event.inputs.test_notify }}" = "true" ]; then
+            node watcher.mjs --test-notify
+          else
+            node watcher.mjs
+          fi
+
+      - name: Commit updated seen state
+        run: |
+          if git diff --quiet .state/seen.json; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .state/seen.json
+          git commit -m "Update watcher state"
+          git push
